@@ -1,0 +1,47 @@
+{
+  "name": "raphael-ai",
+  "version": "1.0.0",
+  "description": "Personal AI Assistant with voice interaction, memory, and calendar integration",
+  "main": "public/src/index.js",
+  "scripts": {
+    "start": "firebase emulators:start",
+    "deploy": "firebase deploy",
+    "build": "echo 'Build process for React app would go here'",
+    "serve": "firebase serve",
+    "functions": "cd functions && python main.py",
+    "setup": "npm install -g firebase-tools && cd functions && pip install -r requirements.txt"
+  },
+  "keywords": [
+    "ai",
+    "assistant", 
+    "firebase",
+    "google-cloud",
+    "voice",
+    "calendar",
+    "gemini",
+    "react",
+    "flask"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/raphael-ai.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yourusername/raphael-ai/issues"
+  },
+  "homepage": "https://github.com/yourusername/raphael-ai#readme",
+  "engines": {
+    "node": ">=16.0.0",
+    "python": ">=3.11.0"
+  },
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "firebase": "^10.7.1"
+  },
+  "devDependencies": {
+    "firebase-tools": "^13.0.0"
+  }
+}
