@@ -6,19 +6,20 @@ A sophisticated personal AI assistant built with Flask (Python) backend and Reac
 
 ### Core Capabilities
 - **Natural Language Processing**: Powered by Google's Gemini AI for understanding and generating human-like responses
-- **Voice Interaction**: Speech-to-text and text-to-speech capabilities using Google Cloud APIs and Web Speech API
+- **Voice Interaction**: Browser-based speech-to-text and text-to-speech using Web Speech APIs
 - **Personal Memory**: Store and retrieve personal information using Google Cloud Firestore
 - **Calendar Integration**: Add events and query your Google Calendar
 - **Educational Assistant**: Manage timetables and homework reminders
+- **Budget Management**: Track monthly budgets and daily expenses
 - **Calculator**: Perform basic mathematical calculations
 - **User Authentication**: Secure login with Google Firebase Authentication
 
 ### Technical Features
 - **Real-time Chat Interface**: Modern, responsive React frontend with Tailwind CSS
 - **Cloud-Native**: Designed for Google Cloud Platform deployment
-- **Secure**: Proper authentication and data isolation per user
+- **Secure**: Proper Firebase authentication with ID token verification
 - **Scalable**: Serverless architecture using Cloud Functions
-- **Cross-Origin Support**: CORS enabled for frontend-backend communication
+- **Browser-Based Voice**: No server-side STT/TTS dependencies
 
 ## Project Structure
 
@@ -61,13 +62,13 @@ RaphaelAI/
 ### 2. Google Cloud Platform Setup
 
 1. Enable the following APIs in Google Cloud Console:
-   - Cloud Speech-to-Text API
-   - Cloud Text-to-Speech API
    - Google Calendar API
    - Firestore API
    - Cloud Functions API
 
-2. Create a service account and download the JSON key file
+2. Create a service account and download the JSON key file for:
+   - Google Cloud services (for Calendar API)
+   - Firebase Admin SDK (for user authentication)
 3. Get a Gemini AI API key from [https://makersuite.google.com/app/apikey](https://makersuite.google.com/app/apikey)
 
 ### 3. Environment Configuration
@@ -78,6 +79,7 @@ RaphaelAI/
 ```bash
 # functions/.env
 GOOGLE_APPLICATION_CREDENTIALS=path/to/your/service-account-key.json
+FIREBASE_SERVICE_ACCOUNT_KEY=path/to/your/firebase-admin-key.json
 GOOGLE_CLOUD_PROJECT=your-project-id
 GEMINI_API_KEY=your-gemini-api-key
 FLASK_ENV=production
@@ -163,22 +165,24 @@ Main chat endpoint for interacting with Raphael AI.
 ```json
 {
   "message": "Remember my car is red",
-  "user_id": "firebase-user-id",
-  "generate_audio": true
+  "idToken": "firebase-id-token"
 }
 ```
 
 **Response:**
 ```json
 {
-  "response": "I'll remember that your car is red!",
+  "message": "I'll remember that your car is red! ✅ I've stored this information in my memory.",
   "user_id": "firebase-user-id", 
-  "audio": "hex-encoded-audio-data"
+  "intent": "MEMORY_STORE"
 }
 ```
 
 ### POST /speech-to-text
-Convert uploaded audio to text.
+**DEPRECATED** - Speech-to-text is now handled in the browser using Web Speech API.
+
+### GET /user-data
+Get user's personal data summary (requires authentication).
 
 ### GET /health
 Health check endpoint.

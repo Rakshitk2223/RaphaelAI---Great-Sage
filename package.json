@@ -6,10 +6,17 @@
   "scripts": {
     "start": "firebase emulators:start",
     "deploy": "firebase deploy",
+    "deploy:functions": "firebase deploy --only functions",
+    "deploy:hosting": "firebase deploy --only hosting",
+    "deploy:firestore": "firebase deploy --only firestore",
     "build": "echo 'Build process for React app would go here'",
     "serve": "firebase serve",
-    "functions": "cd functions && python main.py",
-    "setup": "npm install -g firebase-tools && cd functions && pip install -r requirements.txt"
+    "functions:shell": "firebase functions:shell",
+    "functions:logs": "firebase functions:log",
+    "setup": "npm install -g firebase-tools && cd functions && pip install -r requirements.txt",
+    "test": "cd functions && python -m pytest tests/",
+    "lint": "cd functions && flake8 .",
+    "format": "cd functions && black ."
   },
   "keywords": [
     "ai",

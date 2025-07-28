@@ -129,9 +129,11 @@ ehthumbs.db
 Thumbs.db
 
 # Google Cloud credentials
+Keys/
 *.json
 !firebase.json
 !package.json
+!firestore.indexes.json
 
 # Environment variables
 .env
@@ -139,6 +141,7 @@ Thumbs.db
 .env.development.local
 .env.test.local
 .env.production.local
+!.env.example
 
 # Logs
 logs

@@ -13,6 +13,7 @@
   <!-- Tailwind CSS Custom Configuration -->
   <script>
     tailwind.config = {
+      darkMode: 'class',
       theme: {
         extend: {
           colors: {
@@ -47,13 +48,25 @@
       border-radius: 3px;
     }
     
+    .dark ::-webkit-scrollbar-track {
+      background: #1f2937;
+    }
+    
     ::-webkit-scrollbar-thumb {
       background: #cbd5e1;
       border-radius: 3px;
     }
     
+    .dark ::-webkit-scrollbar-thumb {
+      background: #4b5563;
+    }
+    
     ::-webkit-scrollbar-thumb:hover {
       background: #94a3b8;
+    }
+    
+    .dark ::-webkit-scrollbar-thumb:hover {
+      background: #6b7280;
     }
     
     /* Smooth animations */
@@ -165,13 +178,13 @@
   </script>
   
   <!-- Loading indicator while app initializes -->
-  <div id="loading-indicator" class="fixed inset-0 bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center z-50">
+  <div id="loading-indicator" class="fixed inset-0 bg-gradient-to-br from-blue-50 to-indigo-100 dark:bg-gray-900 flex items-center justify-center z-50">
     <div class="text-center">
       <div class="w-16 h-16 bg-gradient-to-r from-blue-600 to-purple-600 rounded-full flex items-center justify-center mb-4 mx-auto animate-pulse">
         <span class="text-white font-bold text-2xl">R</span>
       </div>
-      <h2 class="text-xl font-semibold text-gray-700 mb-2">Raphael AI</h2>
-      <p class="text-gray-500">Initializing your personal assistant...</p>
+      <h2 class="text-xl font-semibold text-gray-700 dark:text-gray-200 mb-2">Raphael AI</h2>
+      <p class="text-gray-500 dark:text-gray-400">Initializing your personal assistant...</p>
       <div class="mt-4 flex justify-center space-x-1">
         <div class="w-2 h-2 bg-blue-600 rounded-full animate-bounce"></div>
         <div class="w-2 h-2 bg-blue-600 rounded-full animate-bounce" style="animation-delay: 0.1s;"></div>
