@@ -1,281 +1,241 @@
-# Raphael AI - Personal AI Assistant
+# Raphael AI - Great Sage Assistant
 
-A sophisticated personal AI assistant built with Flask (Python) backend and React frontend, deployed on Google Cloud Platform with Firebase integration.
+A voice-driven personal AI assistant inspired by "Great Sage" from anime. Raphael AI helps you manage your daily life with memory, calendar integration, budget tracking, and homework assistance.
 
-## Features
+## 🌟 Features
 
-### Core Capabilities
-- **Natural Language Processing**: Powered by Google's Gemini AI for understanding and generating human-like responses
-- **Voice Interaction**: Browser-based speech-to-text and text-to-speech using Web Speech APIs
-- **Personal Memory**: Store and retrieve personal information using Google Cloud Firestore
-- **Calendar Integration**: Add events and query your Google Calendar
-- **Educational Assistant**: Manage timetables and homework reminders
-- **Budget Management**: Track monthly budgets and daily expenses
-- **Calculator**: Perform basic mathematical calculations
-- **User Authentication**: Secure login with Google Firebase Authentication
+- **🎤 Voice Interaction**: Full voice input/output using Web Speech API (no additional costs)
+- **🧠 Personal Memory**: Stores and recalls your personal information and preferences
+- **📅 Calendar Integration**: Manages your schedule and events through Google Calendar
+- **💰 Budget Tracking**: Tracks income, expenses, and provides financial insights
+- **📚 Homework Assistant**: Helps manage tasks and assignments
+- **🔐 Secure Authentication**: Firebase Authentication with Google Sign-in
+- **☁️ Cloud Storage**: All data securely stored in Firestore with user-scoped access
 
-### Technical Features
-- **Real-time Chat Interface**: Modern, responsive React frontend with Tailwind CSS
-- **Cloud-Native**: Designed for Google Cloud Platform deployment
-- **Secure**: Proper Firebase authentication with ID token verification
-- **Scalable**: Serverless architecture using Cloud Functions
-- **Browser-Based Voice**: No server-side STT/TTS dependencies
+## 🏗️ Architecture
 
-## Project Structure
+### Backend (Firebase Cloud Functions - Python)
+- **Flask Application**: Main API server with RESTful endpoints
+- **Firebase Admin SDK**: Authentication and Firestore integration
+- **Google Gemini AI**: Natural language processing and intent parsing
+- **Google Calendar API**: Event management and scheduling
+- **Modular Services**: Clean separation of concerns with service pattern
 
-```
-RaphaelAI/
-├── functions/             # Python Flask backend (Cloud Function)
-│   ├── main.py           # Main Flask application with all AI capabilities
-│   ├── requirements.txt  # Python dependencies
-│   └── .env.example     # Environment variables template
-├── public/               # React frontend web app
-│   ├── src/
-│   │   ├── App.js       # Main React component with chat interface
-│   │   └── index.js     # React app entry point
-│   └── index.html       # HTML template with Tailwind CSS
-├── firebase.json         # Firebase project configuration
-├── .firebaserc          # Firebase project settings
-├── firestore.rules      # Firestore security rules
-├── firestore.indexes.json # Firestore database indexes
-└── .gitignore           # Git ignore file
-```
+### Frontend (React)
+- **Modern React**: Functional components with hooks
+- **Component-based**: Modular UI components (AuthUI, ChatWindow, MessageInput)
+- **Speech Integration**: Custom hooks for speech recognition and synthesis
+- **Firebase SDK**: Client-side authentication and real-time updates
+- **Responsive Design**: Clean, modern interface that works on all devices
 
-## Setup Instructions
+## 🚀 Quick Start
 
 ### Prerequisites
-- Google Cloud Platform account
-- Firebase project
-- Node.js and npm (for frontend development)
-- Python 3.11+ (for backend development)
-- Firebase CLI tools
+- Node.js 18+ and npm
+- Python 3.11+
+- Firebase CLI
+- Google Cloud Project with required APIs enabled
 
-### 1. Firebase Project Setup
+### Environment Setup
 
-1. Create a new Firebase project at [https://console.firebase.google.com](https://console.firebase.google.com)
-2. Enable the following services:
-   - Authentication (Google provider)
-   - Firestore Database
-   - Cloud Functions
-   - Hosting
-
-### 2. Google Cloud Platform Setup
-
-1. Enable the following APIs in Google Cloud Console:
-   - Google Calendar API
-   - Firestore API
-   - Cloud Functions API
-
-2. Create a service account and download the JSON key file for:
-   - Google Cloud services (for Calendar API)
-   - Firebase Admin SDK (for user authentication)
-3. Get a Gemini AI API key from [https://makersuite.google.com/app/apikey](https://makersuite.google.com/app/apikey)
-
-### 3. Environment Configuration
-
-1. Copy `functions/.env.example` to `functions/.env`
-2. Fill in your actual API keys and configuration:
-
+1. **Clone and install dependencies:**
 ```bash
-# functions/.env
-GOOGLE_APPLICATION_CREDENTIALS=path/to/your/service-account-key.json
-FIREBASE_SERVICE_ACCOUNT_KEY=path/to/your/firebase-admin-key.json
-GOOGLE_CLOUD_PROJECT=your-project-id
-GEMINI_API_KEY=your-gemini-api-key
-FLASK_ENV=production
-PORT=8080
-```
-
-3. Update Firebase configuration in `public/src/App.js`:
-
-```javascript
-const firebaseConfig = {
-  apiKey: "your-api-key",
-  authDomain: "your-project.firebaseapp.com",
-  projectId: "your-project-id",
-  storageBucket: "your-project.appspot.com",
-  messagingSenderId: "your-sender-id",
-  appId: "your-app-id"
-};
-```
-
-4. Update `.firebaserc` with your project ID:
-
-```json
-{
-  "projects": {
-    "default": "your-project-id"
-  }
-}
-```
-
-### 4. Local Development
-
-1. Install Firebase CLI:
-```bash
+cd RaphaelAI
 npm install -g firebase-tools
+cd functions && pip install -r requirements.txt
+cd ../public && npm install
 ```
 
-2. Login to Firebase:
-```bash
-firebase login
-```
-
-3. Install Python dependencies:
+2. **Configure environment variables:**
 ```bash
 cd functions
-pip install -r requirements.txt
+cp .env.example .env
+# Edit .env with your API keys
 ```
 
-4. Start the local development server:
+Required environment variables:
+- `GEMINI_API_KEY`: Get from [Google AI Studio](https://makersuite.google.com/app/apikey)
+- `GOOGLE_APPLICATION_CREDENTIALS`: Service account JSON file path
+- `FIREBASE_PROJECT_ID`: Your Firebase project ID
+
+3. **Start development environment:**
 ```bash
+# From project root
 firebase emulators:start
 ```
 
-### 5. Deployment
+This starts:
+- Functions emulator: http://localhost:5001
+- Firestore emulator: http://localhost:8080  
+- Hosting: http://localhost:5000
+- Firebase UI: http://localhost:4000
 
-1. Deploy to Firebase:
-```bash
-firebase deploy
+## 📁 Project Structure
+
+```
+RaphaelAI/
+├── functions/                 # Backend Cloud Functions
+│   ├── main.py               # Main Flask application
+│   ├── requirements.txt      # Python dependencies
+│   ├── services/            # Business logic services
+│   │   ├── firestore_service.py    # Database operations
+│   │   ├── gemini_service.py       # AI integration
+│   │   └── calendar_service.py     # Calendar management
+│   └── utils/               # Utility functions
+│       ├── auth_middleware.py      # Authentication
+│       └── calculations.py         # Math operations
+├── public/                   # Frontend React app
+│   ├── src/
+│   │   ├── App.js           # Main React component
+│   │   ├── components/      # UI components
+│   │   ├── hooks/          # Custom React hooks
+│   │   └── services/       # API communication
+│   ├── package.json        # Frontend dependencies
+│   └── index.html          # Entry point
+├── firebase.json           # Firebase configuration
+├── firestore.rules        # Database security rules
+└── package.json           # Project metadata
 ```
 
-This will deploy:
-- Cloud Functions (Python Flask backend)
-- Firebase Hosting (React frontend)
-- Firestore rules and indexes
+## 🔧 Development
 
-### 6. Testing the Application
+### Backend Development
+```bash
+cd functions
+python main.py  # Local development server
+```
 
-1. Open your deployed app URL (provided after deployment)
-2. Sign in with your Google account
-3. Try these example interactions:
-   - "Remember my favorite color is blue"
-   - "What's my favorite color?"
-   - "Add a meeting tomorrow at 3 PM"
-   - "What are my events today?"
-   - "What's 25 * 4?"
-   - "What classes do I have today?" (after setting up timetable)
+### Frontend Development
+```bash
+cd public
+npm start  # React development server
+```
 
-## API Endpoints
+### Testing
+```bash
+# Backend
+cd functions && python -m pytest tests/
+
+# Linting
+cd functions && flake8 .
+cd functions && black .  # Code formatting
+```
+
+## 📋 API Endpoints
 
 ### POST /chat
-Main chat endpoint for interacting with Raphael AI.
+Main conversation endpoint with authentication required.
 
 **Request:**
 ```json
 {
-  "message": "Remember my car is red",
-  "idToken": "firebase-id-token"
+  "message": "Remember that I love chocolate ice cream",
+  "idToken": "firebase_id_token"
 }
 ```
 
 **Response:**
 ```json
 {
-  "message": "I'll remember that your car is red! ✅ I've stored this information in my memory.",
-  "user_id": "firebase-user-id", 
-  "intent": "MEMORY_STORE"
+  "message": "I'll remember that you love chocolate ice cream! 🍦",
+  "intent": "store_memory",
+  "user_id": "user123"
 }
 ```
 
-### POST /speech-to-text
-**DEPRECATED** - Speech-to-text is now handled in the browser using Web Speech API.
-
 ### GET /user-data
-Get user's personal data summary (requires authentication).
+Get user's personal data summary (authenticated).
 
 ### GET /health
 Health check endpoint.
 
-## Data Structure
+## 🎯 Supported Intents
 
-### Firestore Collections
+- **Memory Management**: "Remember that...", "What do you know about..."
+- **Calendar Events**: "Schedule a meeting...", "What's on my calendar?"
+- **Budget Tracking**: "I spent $20 on lunch", "What's my budget?"
+- **Task Management**: "Add homework: Math assignment", "What are my tasks?"
+- **Calculations**: "What's 15% of 200?", "Calculate compound interest"
+- **General Chat**: Conversations and Q&A
 
-#### /users/{userId}/memories
-```json
-{
-  "text": "My car is red",
-  "category": "general",
-  "timestamp": "2024-01-01T12:00:00Z",
-  "created_at": "2024-01-01T12:00:00.000Z"
-}
+## 🔐 Security
+
+- Firebase Authentication with Google Sign-in
+- User-scoped data isolation in Firestore
+- Server-side ID token verification
+- Secure API endpoints with authentication middleware
+- Environment variables for sensitive data
+
+## 🚀 Deployment
+
+### Production Deployment
+```bash
+# Deploy all services
+firebase deploy
+
+# Deploy specific services
+firebase deploy --only functions
+firebase deploy --only hosting
+firebase deploy --only firestore
 ```
 
-#### /users/{userId}/timetable/{day}
-```json
-{
-  "classes": [
-    "Math 101 - 9:00 AM",
-    "Physics 201 - 11:00 AM",
-    "Chemistry Lab - 2:00 PM"
-  ]
-}
+### Environment Configuration
+Set production environment variables in Firebase Functions:
+```bash
+firebase functions:config:set gemini.api_key="your_key_here"
+firebase functions:config:set google.project_id="your_project_id"
 ```
 
-#### /users/{userId}/homework
-```json
-{
-  "subject": "Mathematics",
-  "description": "Complete Chapter 5 exercises",
-  "due_date": "2024-01-15",
-  "completed": false,
-  "created_at": "2024-01-01T12:00:00.000Z"
-}
-```
+## 🎨 Customization
 
-## Security
+### Adding New Intents
+1. Update `gemini_service.py` intent parsing
+2. Add action handling in `main.py` `execute_action()` function
+3. Create corresponding service functions if needed
 
-- **Authentication**: All requests require valid Firebase user authentication
-- **Data Isolation**: Users can only access their own data through Firestore security rules
-- **API Keys**: All sensitive credentials are stored as environment variables
-- **CORS**: Properly configured for secure cross-origin requests
+### UI Customization
+- Modify `App.css` for styling
+- Update components in `public/src/components/`
+- Customize voice settings in speech hooks
 
-## Customization
-
-### Adding New Capabilities
-
-1. **Backend**: Add new functions in `functions/main.py`
-2. **Intent Recognition**: Update the Gemini prompt in `process_with_gemini()`
-3. **Data Storage**: Add new Firestore collections as needed
-4. **Frontend**: Update the UI in `public/src/App.js`
-
-### Styling
-
-The frontend uses Tailwind CSS for styling. Customize the design by:
-- Modifying classes in `App.js`
-- Adding custom CSS in `index.html`
-- Updating the Tailwind configuration
-
-## Troubleshooting
+## 🐛 Troubleshooting
 
 ### Common Issues
 
-1. **Authentication Errors**: Verify Firebase configuration and API keys
-2. **CORS Issues**: Ensure Flask-CORS is properly configured
-3. **Speech Recognition**: Check browser compatibility and microphone permissions
-4. **Firestore Permissions**: Verify security rules and user authentication
+**"GEMINI_API_KEY not found"**
+- Ensure `.env` file exists in `functions/` directory
+- Verify API key is correctly set
 
-### Logs
+**Authentication errors**
+- Check Firebase project configuration
+- Verify service account permissions
+- Ensure Firestore security rules are properly configured
 
-- **Backend Logs**: View in Google Cloud Console > Cloud Functions
-- **Frontend Errors**: Check browser developer console
-- **Firestore**: Monitor in Firebase Console
+**Voice features not working**
+- Ensure HTTPS connection (required for Web Speech API)
+- Check browser compatibility
+- Verify microphone permissions
 
-## Contributing
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🤝 Contributing
 
 1. Fork the repository
 2. Create a feature branch
 3. Make your changes
-4. Test thoroughly
+4. Add tests if applicable
 5. Submit a pull request
 
-## License
+For detailed contribution guidelines, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
-This project is licensed under the MIT License.
+## 📞 Support
 
-## Support
+- Create an issue for bug reports or feature requests
+- Check existing issues before creating new ones
+- Provide detailed information for faster resolution
 
-For issues and questions:
-- Check the troubleshooting section
-- Review Google Cloud and Firebase documentation
-- Open an issue in the repository
+---
+
+**Raphael AI** - Your personal Great Sage assistant 🧙‍♂️✨

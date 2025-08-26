@@ -1,106 +1,124 @@
-// Custom hook for Speech Synthesis using Web Speech API
+// Speech synthesis hook for voice output
+// Uses Web Speech API to avoid GCP billing as specified in blueprint
+
 import { useState, useEffect, useRef } from 'react';
 
-const useSpeechSynthesis = () => {
+export const useSpeechSynthesis = () => {
   const [isSpeaking, setIsSpeaking] = useState(false);
-  const [error, setError] = useState('');
-  const synthRef = useRef(null);
-
-  // Check if browser supports Speech Synthesis
-  const isSupported = 'speechSynthesis' in window;
-
+  const [isPaused, setIsPaused] = useState(false);
+  const [isSupported, setIsSupported] = useState(false);
+  const [voices, setVoices] = useState([]);
+  const [selectedVoice, setSelectedVoice] = useState(null);
+  
   useEffect(() => {
-    if (isSupported) {
-      synthRef.current = window.speechSynthesis;
+    if ('speechSynthesis' in window) {
+      setIsSupported(true);
+      
+      // Get available voices
+      const loadVoices = () => {
+        const availableVoices = window.speechSynthesis.getVoices();
+        setVoices(availableVoices);
+        
+        // Find a good default voice (preferably English)
+        const englishVoice = availableVoices.find(voice => 
+          voice.lang.startsWith('en') && voice.name.includes('Google')
+        ) || availableVoices.find(voice => 
+          voice.lang.startsWith('en')
+        ) || availableVoices[0];
+        
+        setSelectedVoice(englishVoice);
+      };
+
+      // Load voices immediately if available
+      loadVoices();
+      
+      // Also listen for voice changes (some browsers load voices asynchronously)
+      window.speechSynthesis.onvoiceschanged = loadVoices;
     } else {
-      setError('Speech synthesis is not supported in this browser');
+      setIsSupported(false);
     }
 
-    // Cleanup function
     return () => {
-      if (synthRef.current && isSpeaking) {
-        synthRef.current.cancel();
+      if (window.speechSynthesis) {
+        window.speechSynthesis.cancel();
       }
     };
-  }, [isSpeaking]);
+  }, []);
 
   const speak = (text, options = {}) => {
-    if (!isSupported) {
-      setError('Speech synthesis is not supported');
-      return;
-    }
+    if (!isSupported || !text) return;
 
-    if (!text || !synthRef.current) return;
+    // Cancel any ongoing speech
+    window.speechSynthesis.cancel();
 
-    // Stop any ongoing speech
-    synthRef.current.cancel();
-
-    // Clean the text for speech (remove markdown and special characters)
-    const cleanText = text.replace(/[*_~`]/g, '').replace(/\n/g, ' ');
-
-    const utterance = new SpeechSynthesisUtterance(cleanText);
+    const utterance = new SpeechSynthesisUtterance(text);
     
-    // Configure voice settings
-    utterance.rate = options.rate || 0.9;
-    utterance.pitch = options.pitch || 1;
-    utterance.volume = options.volume || 0.8;
-
-    // Try to find a pleasant voice
-    const voices = synthRef.current.getVoices();
-    if (options.voice) {
-      utterance.voice = options.voice;
-    } else {
-      const preferredVoice = voices.find(voice => 
-        voice.name.includes('Google') || 
-        voice.name.includes('Microsoft') ||
-        voice.lang.startsWith('en')
-      );
-      if (preferredVoice) {
-        utterance.voice = preferredVoice;
-      }
+    // Set voice if available
+    if (selectedVoice) {
+      utterance.voice = selectedVoice;
     }
+    
+    // Apply options
+    utterance.rate = options.rate || 1;
+    utterance.pitch = options.pitch || 1;
+    utterance.volume = options.volume || 1;
 
-    // Event handlers
+    // Set up event handlers
     utterance.onstart = () => {
       setIsSpeaking(true);
-      setError('');
+      setIsPaused(false);
     };
 
     utterance.onend = () => {
       setIsSpeaking(false);
+      setIsPaused(false);
     };
 
     utterance.onerror = (event) => {
-      console.error('Speech synthesis error:', event);
-      setError(`Speech synthesis error: ${event.error}`);
+      console.error('Speech synthesis error:', event.error);
       setIsSpeaking(false);
+      setIsPaused(false);
     };
 
-    synthRef.current.speak(utterance);
+    utterance.onpause = () => {
+      setIsPaused(true);
+    };
+
+    utterance.onresume = () => {
+      setIsPaused(false);
+    };
+
+    window.speechSynthesis.speak(utterance);
   };
 
-  const stop = () => {
-    if (synthRef.current && isSpeaking) {
-      synthRef.current.cancel();
-      setIsSpeaking(false);
+  const pause = () => {
+    if (window.speechSynthesis.speaking && !window.speechSynthesis.paused) {
+      window.speechSynthesis.pause();
     }
   };
 
-  const getVoices = () => {
-    if (synthRef.current) {
-      return synthRef.current.getVoices();
+  const resume = () => {
+    if (window.speechSynthesis.paused) {
+      window.speechSynthesis.resume();
     }
-    return [];
+  };
+
+  const cancel = () => {
+    window.speechSynthesis.cancel();
+    setIsSpeaking(false);
+    setIsPaused(false);
   };
 
   return {
-    isSpeaking,
-    error,
-    isSupported,
     speak,
-    stop,
-    getVoices
+    pause,
+    resume,
+    cancel,
+    isSpeaking,
+    isPaused,
+    isSupported,
+    voices,
+    selectedVoice,
+    setSelectedVoice
   };
 };
-
-export default useSpeechSynthesis;

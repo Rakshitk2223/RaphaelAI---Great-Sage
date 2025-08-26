@@ -1,385 +1,280 @@
-# Gemini AI service - handles all interactions with Google Gemini API
+"""
+Gemini AI service for Raphael AI
+Handles all interactions with Google's Gemini AI model
+"""
+
 import os
 import json
 import re
 from datetime import datetime
 import google.generativeai as genai
 
-# Initialize Gemini model
-try:
-    api_key = os.environ.get('GEMINI_API_KEY')
-    if api_key:
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-pro')
-        print("Gemini AI model initialized")
-    else:
-        print("GEMINI_API_KEY not found - Gemini features will be disabled")
-        model = None
-except Exception as e:
-    print(f"Error initializing Gemini AI: {e}")
+# Initialize Gemini AI
+gemini_api_key = os.environ.get('GEMINI_API_KEY')
+if gemini_api_key:
+    genai.configure(api_key=gemini_api_key)
+    model = genai.GenerativeModel('gemini-pro')
+    print("✅ Gemini AI initialized successfully")
+else:
     model = None
+    print("❌ GEMINI_API_KEY not found")
 
 
-def get_gemini_response(user_message, conversation_history=None, user_personal_context=None):
+def get_gemini_response(message, conversation_history=None, user_context=None):
     """
-    Get a response from Gemini AI with context.
+    Get response from Gemini AI with full context
     
     Args:
-        user_message (str): The current user message
-        conversation_history (list, optional): List of previous chat messages
-        user_personal_context (dict, optional): User-specific facts and data
-        
+        message (str): User's current message
+        conversation_history (list): Recent conversation history
+        user_context (dict): User's personal context (memories, tasks, etc.)
+    
     Returns:
-        str: Gemini's text response
+        str: AI response
     """
+    if not model:
+        return "Sorry, AI services are currently unavailable. Please check your API configuration."
+    
     try:
-        if model is None:
-            return "I'm sorry, but my AI services are currently unavailable. Please try again later."
+        # Build comprehensive context for Gemini
+        system_prompt = build_system_prompt(user_context)
+        full_prompt = build_full_prompt(system_prompt, conversation_history, message)
         
-        # Build context prompt
-        context_parts = []
-        
-        # Add personal context
-        if user_personal_context:
-            context_parts.append("Here's what I know about you:")
-            if 'memories' in user_personal_context and user_personal_context['memories']:
-                context_parts.append(f"Recent memories: {'; '.join(user_personal_context['memories'][:5])}")
-            if 'budget' in user_personal_context and user_personal_context['budget']:
-                context_parts.append(f"Budget info: {user_personal_context['budget']}")
-            if 'homework' in user_personal_context and user_personal_context['homework']:
-                context_parts.append(f"Pending homework: {'; '.join(user_personal_context['homework'][:3])}")
-            if 'timetable' in user_personal_context and user_personal_context['timetable']:
-                context_parts.append(f"Today's classes: {'; '.join(user_personal_context['timetable'])}")
-        
-        # Add conversation history
-        if conversation_history:
-            context_parts.append("\nRecent conversation:")
-            for msg in conversation_history[-6:]:  # Last 3 exchanges
-                context_parts.append(f"{msg.get('sender', 'Unknown')}: {msg.get('text', '')}")
-        
-        # Build the full prompt
-        full_prompt = f"""
-You are Raphael, a helpful personal AI assistant. You have access to the user's personal data and can help them with various tasks.
-
-{chr(10).join(context_parts) if context_parts else "No additional context available."}
-
-Current user message: "{user_message}"
-
-Based on this message and context, respond naturally and helpfully as Raphael. If the user is asking you to:
-
-1. **Remember something** (e.g., "remember", "my name is", "I like") - Acknowledge that you'll remember it
-2. **Recall information** (e.g., "what do you know about", "tell me about") - Use the memories from context
-3. **Schedule events** (e.g., "add meeting", "schedule", "appointment") - Help them plan the event
-4. **Get calendar info** (e.g., "what's my schedule", "events today") - Refer to their calendar
-5. **Calculate something** (e.g., math expressions, "what is 5+3") - Provide the calculation
-6. **Manage homework** (e.g., "homework", "assignments", "due") - Help with homework tracking
-7. **Handle budget** (e.g., "expense", "budget", "spent money") - Assist with budget management
-8. **Get timetable** (e.g., "classes today", "my schedule") - Show their class schedule
-
-Respond conversationally and include specific actions if needed. Keep responses concise but helpful.
-"""
-        
+        # Get response from Gemini
         response = model.generate_content(full_prompt)
-        return response.text
+        ai_response = response.text if response.text else "I'm sorry, I couldn't generate a response."
+        
+        return ai_response
         
     except Exception as e:
-        print(f"Error with Gemini API: {e}")
-        return "I'm having trouble processing your request right now. Please try again."
+        print(f"Error getting Gemini response: {e}")
+        return "I encountered an error while processing your request. Please try again."
 
 
-def parse_gemini_intent(user_message, gemini_response_text):
+def build_system_prompt(user_context=None):
+    """Build the system prompt with user context"""
+    base_prompt = """You are Raphael, an intelligent personal AI assistant inspired by Great Sage. 
+You are helpful, friendly, and knowledgeable. You can:
+
+- Remember personal information and preferences
+- Help with calendar management and scheduling
+- Assist with budget tracking and calculations
+- Manage tasks and homework
+- Have natural conversations
+- Provide helpful advice and information
+
+Be conversational, empathetic, and proactive in helping the user."""
+    
+    if user_context:
+        context_sections = []
+        
+        # Add memories
+        if user_context.get('memories'):
+            memories_text = '; '.join(user_context['memories'][:5])
+            context_sections.append(f"Personal memories: {memories_text}")
+        
+        # Add budget info
+        if user_context.get('budget'):
+            context_sections.append(f"Budget status: {user_context['budget']}")
+        
+        # Add tasks
+        if user_context.get('tasks'):
+            tasks_text = '; '.join(user_context['tasks'][:3])
+            context_sections.append(f"Current tasks: {tasks_text}")
+        
+        if context_sections:
+            context_prompt = "\n\nCurrent user context:\n" + '\n'.join(context_sections)
+            base_prompt += context_prompt
+    
+    return base_prompt
+
+
+def build_full_prompt(system_prompt, conversation_history, current_message):
+    """Build the complete prompt for Gemini"""
+    prompt_parts = [system_prompt]
+    
+    # Add conversation history
+    if conversation_history:
+        prompt_parts.append("\nRecent conversation:")
+        for msg in conversation_history[-6:]:  # Last 6 messages
+            role = "User" if msg.get('sender') == 'user' else "Raphael"
+            content = msg.get('user_message', '') if msg.get('sender') == 'user' else msg.get('ai_response', '')
+            if content:
+                prompt_parts.append(f"{role}: {content}")
+    
+    # Add current message
+    prompt_parts.append(f"\nUser: {current_message}")
+    prompt_parts.append("Raphael:")
+    
+    return "\n".join(prompt_parts)
+
+
+def parse_gemini_intent(user_message, ai_response):
     """
-    Parse Gemini's response to identify specific intents and extract structured data.
+    Parse the user's intent from their message and AI response
     
     Args:
-        user_message (str): Original user message
-        gemini_response_text (str): Gemini's response
-        
+        user_message (str): User's message
+        ai_response (str): AI's response
+    
     Returns:
-        dict: Parsed intent information with action type and extracted data
+        dict: Intent data with action and confidence
     """
-    try:
-        # Convert to lowercase for matching
-        message_lower = user_message.lower()
-        response_lower = gemini_response_text.lower()
-        
-        intent_data = {
-            'action': 'general',
-            'confidence': 0.5,
-            'entities': {},
-            'response': gemini_response_text
-        }
-        
-        # Memory storage detection
-        if any(keyword in message_lower for keyword in ['remember', 'my', 'i am', 'i have', 'i like', 'my name is']):
-            intent_data['action'] = 'store_memory'
-            intent_data['confidence'] = 0.9
-            intent_data['entities'] = {'memory_text': user_message}
-        
-        # Memory retrieval detection
-        elif any(keyword in message_lower for keyword in ['what did i tell you', 'do you remember', 'what do you know about', 'tell me about']):
-            intent_data['action'] = 'retrieve_memory'
-            intent_data['confidence'] = 0.8
-            # Extract query term
-            query_patterns = [r'about (.+)', r'remember (.+)', r'know about (.+)']
-            for pattern in query_patterns:
-                match = re.search(pattern, message_lower)
-                if match:
-                    intent_data['entities']['query'] = match.group(1)
-                    break
-        
-        # Calendar event detection
-        elif any(keyword in message_lower for keyword in ['add meeting', 'schedule', 'appointment', 'calendar', 'add event', 'meeting']):
-            intent_data['action'] = 'add_calendar_event'
-            intent_data['confidence'] = 0.8
-            intent_data['entities'] = extract_event_details(user_message)
-        
-        # Calendar query detection
-        elif any(keyword in message_lower for keyword in ['today', 'schedule today', 'events today', 'what\'s my schedule']):
-            intent_data['action'] = 'get_calendar_events'
-            intent_data['confidence'] = 0.9
-        
-        # Calculation detection
-        elif any(keyword in message_lower for keyword in ['calculate', 'what is', 'math']) or re.search(r'[\+\-\*\/\=]', user_message):
-            intent_data['action'] = 'calculate'
-            intent_data['confidence'] = 0.9
-            intent_data['entities'] = {'expression': user_message}
-        
-        # Homework detection
-        elif any(keyword in message_lower for keyword in ['homework', 'assignment', 'due']):
-            if any(add_keyword in message_lower for add_keyword in ['add', 'new', 'have']):
-                intent_data['action'] = 'add_homework'
-                intent_data['entities'] = extract_homework_details(user_message)
-            else:
-                intent_data['action'] = 'get_homework'
-            intent_data['confidence'] = 0.8
-        
-        # Budget detection
-        elif any(keyword in message_lower for keyword in ['budget', 'expense', 'spent', 'money', 'cost', 'paid']):
-            if any(add_keyword in message_lower for add_keyword in ['spent', 'paid', 'bought', 'cost']):
-                intent_data['action'] = 'add_expense'
-                intent_data['entities'] = extract_expense_details(user_message)
-            elif any(set_keyword in message_lower for set_keyword in ['set budget', 'monthly budget']):
-                intent_data['action'] = 'set_budget'
-                intent_data['entities'] = extract_budget_amount(user_message)
-            else:
-                intent_data['action'] = 'get_budget'
-            intent_data['confidence'] = 0.8
-        
-        # Timetable detection
-        elif any(keyword in message_lower for keyword in ['classes', 'timetable', 'class schedule']):
-            intent_data['action'] = 'get_timetable'
-            intent_data['confidence'] = 0.8
-        
-        return intent_data
-        
-    except Exception as e:
-        print(f"Error parsing intent: {e}")
-        return {
-            'action': 'general',
-            'confidence': 0.5,
-            'entities': {},
-            'response': gemini_response_text
-        }
-
-
-def extract_event_details(message):
-    """Extract event details from user message."""
-    entities = {}
+    message_lower = user_message.lower()
     
-    # Extract time patterns
-    time_patterns = [
-        r'at (\d{1,2}:\d{2})',
-        r'at (\d{1,2})\s*(am|pm)',
-        r'(\d{1,2}:\d{2})\s*(am|pm)?'
-    ]
-    
-    for pattern in time_patterns:
-        match = re.search(pattern, message.lower())
-        if match:
-            entities['time'] = match.group(1)
-            if len(match.groups()) > 1 and match.group(2):
-                entities['time'] += match.group(2)
-            break
-    
-    # Extract date patterns
-    if 'tomorrow' in message.lower():
-        entities['date'] = 'tomorrow'
-    elif 'today' in message.lower():
-        entities['date'] = 'today'
-    elif 'next week' in message.lower():
-        entities['date'] = 'next_week'
-    
-    # Extract event title (simple heuristic)
-    if 'meeting' in message.lower():
-        entities['title'] = 'Meeting'
-    elif 'appointment' in message.lower():
-        entities['title'] = 'Appointment'
-    else:
-        # Try to extract from context
-        words = message.split()
-        if len(words) > 2:
-            entities['title'] = ' '.join(words[1:4])  # Take a few words as title
-    
-    return entities
-
-
-def extract_homework_details(message):
-    """Extract homework details from user message."""
-    entities = {}
-    
-    # Look for subject patterns
-    subjects = ['math', 'science', 'english', 'history', 'physics', 'chemistry', 'biology']
-    for subject in subjects:
-        if subject in message.lower():
-            entities['subject'] = subject.title()
-            break
-    
-    # Look for due date patterns
-    if 'tomorrow' in message.lower():
-        entities['due_date'] = 'tomorrow'
-    elif 'next week' in message.lower():
-        entities['due_date'] = 'next_week'
-    elif 'friday' in message.lower():
-        entities['due_date'] = 'friday'
-    
-    # Extract description (everything after common homework keywords)
-    hw_keywords = ['homework', 'assignment', 'due']
-    for keyword in hw_keywords:
-        if keyword in message.lower():
-            parts = message.lower().split(keyword, 1)
-            if len(parts) > 1:
-                entities['description'] = parts[1].strip()
-                break
-    
-    return entities
-
-
-def extract_expense_details(message):
-    """Extract expense details from user message."""
-    entities = {}
-    
-    # Extract amount patterns
-    amount_patterns = [
-        r'\$(\d+(?:\.\d{2})?)',
-        r'(\d+(?:\.\d{2})?)\s*dollars?',
-        r'(\d+(?:\.\d{2})?)\s*bucks?',
-        r'(\d+(?:\.\d{2})?)'
-    ]
-    
-    for pattern in amount_patterns:
-        match = re.search(pattern, message)
-        if match:
-            entities['amount'] = float(match.group(1))
-            break
-    
-    # Extract category patterns
-    categories = ['food', 'transportation', 'entertainment', 'shopping', 'groceries', 'gas', 'coffee']
-    for category in categories:
-        if category in message.lower():
-            entities['category'] = category
-            break
-    
-    # Default category if none found
-    if 'category' not in entities:
-        entities['category'] = 'general'
-    
-    return entities
-
-
-def extract_budget_amount(message):
-    """Extract budget amount from user message."""
-    entities = {}
-    
-    # Extract amount patterns
-    amount_patterns = [
-        r'\$(\d+(?:\.\d{2})?)',
-        r'(\d+(?:\.\d{2})?)\s*dollars?'
-    ]
-    
-    for pattern in amount_patterns:
-        match = re.search(pattern, message)
-        if match:
-            entities['budget_amount'] = float(match.group(1))
-            break
-    
-    return entities
-
-
-def generate_structured_prompt(intent, user_data, specific_request):
-    """
-    Generate a structured prompt for specific intents.
-    
-    Args:
-        intent (str): The identified intent
-        user_data (dict): User's personal data
-        specific_request (str): The specific request details
-        
-    Returns:
-        str: Formatted prompt for Gemini
-    """
-    prompts = {
-        'calendar_event': f"""
-        Help the user create a calendar event. 
-        Request: {specific_request}
-        User context: {user_data.get('recent_events', 'No recent events')}
-        
-        Extract and format:
-        - Event title
-        - Date and time
-        - Duration
-        - Any additional details
-        
-        Respond naturally while providing the structured information.
-        """,
-        
-        'budget_analysis': f"""
-        Help the user with budget analysis.
-        Request: {specific_request}
-        Current budget: {user_data.get('budget', 'No budget set')}
-        Recent expenses: {user_data.get('recent_expenses', 'No recent expenses')}
-        
-        Provide insights and recommendations based on their spending patterns.
-        """,
-        
-        'homework_reminder': f"""
-        Help the user manage their homework.
-        Request: {specific_request}
-        Pending assignments: {user_data.get('homework', 'No pending homework')}
-        Class schedule: {user_data.get('timetable', 'No schedule available')}
-        
-        Provide helpful reminders and study suggestions.
-        """
+    # Intent patterns
+    intent_patterns = {
+        'store_memory': [
+            'remember', 'store', 'save', 'keep in mind', 'note that',
+            'my name is', 'i am', 'i like', 'i love', 'i hate', 'i prefer'
+        ],
+        'retrieve_memory': [
+            'what do you know about', 'tell me about', 'recall', 'remember when',
+            'what did i say about', 'remind me'
+        ],
+        'add_calendar_event': [
+            'schedule', 'book', 'set up a meeting', 'add to calendar', 'create event',
+            'appointment', 'remind me to', 'meeting at'
+        ],
+        'get_calendar_events': [
+            'what\'s on my calendar', 'my schedule', 'what do i have today',
+            'any meetings', 'events today', 'my appointments'
+        ],
+        'calculate': [
+            'calculate', 'what is', 'what\'s', 'compute', 'solve', 'math',
+            'plus', 'minus', 'times', 'divided by', '%', 'percent'
+        ],
+        'add_task': [
+            'homework', 'assignment', 'task', 'todo', 'need to do',
+            'add task', 'remind me to do', 'i have to'
+        ],
+        'get_tasks': [
+            'my tasks', 'what do i need to do', 'pending tasks', 'homework list',
+            'what\'s due', 'assignments'
+        ],
+        'add_expense': [
+            'spent', 'bought', 'paid', 'cost', 'expense', 'purchase',
+            'i spent', 'it cost', 'add expense'
+        ],
+        'get_budget': [
+            'budget', 'spending', 'expenses', 'how much have i spent',
+            'financial summary', 'money'
+        ]
     }
     
-    return prompts.get(intent, f"Help the user with: {specific_request}")
+    # Find matching intent
+    detected_intent = 'general'
+    confidence = 0.5
+    
+    for intent, patterns in intent_patterns.items():
+        for pattern in patterns:
+            if pattern in message_lower:
+                detected_intent = intent
+                confidence = 0.8
+                break
+        if detected_intent != 'general':
+            break
+    
+    # Special handling for calculations
+    if re.search(r'\d+\s*[\+\-\*\/\%]\s*\d+', user_message):
+        detected_intent = 'calculate'
+        confidence = 0.9
+    
+    return {
+        'action': detected_intent,
+        'confidence': confidence,
+        'original_message': user_message
+    }
 
 
-# Helper function for conversation history management
-def format_conversation_history(messages, max_length=5):
+def format_conversation_history(messages):
     """
-    Format conversation history for Gemini context.
+    Format conversation history for Gemini context
     
     Args:
-        messages (list): List of message dicts with 'sender' and 'text' keys
-        max_length (int): Maximum number of messages to include
-        
+        messages (list): List of conversation messages
+    
     Returns:
-        list: Formatted conversation history
+        list: Formatted messages for context
     """
     if not messages:
         return []
     
-    # Take the most recent messages
-    recent_messages = messages[-max_length:] if len(messages) > max_length else messages
-    
     formatted = []
-    for msg in recent_messages:
-        sender = msg.get('sender', 'unknown')
-        text = msg.get('text', '')
-        if sender == 'user':
-            formatted.append(f"User: {text}")
-        elif sender == 'raphael':
-            formatted.append(f"Raphael: {text}")
+    for msg in messages:
+        if isinstance(msg, dict):
+            # Handle different message formats
+            if 'user_message' in msg and 'ai_response' in msg:
+                formatted.append({
+                    'sender': 'user',
+                    'user_message': msg['user_message'],
+                    'timestamp': msg.get('timestamp', '')
+                })
+                formatted.append({
+                    'sender': 'assistant',
+                    'ai_response': msg['ai_response'],
+                    'timestamp': msg.get('timestamp', '')
+                })
+            else:
+                formatted.append(msg)
     
-    return formatted
+    return formatted[-10:]  # Keep last 10 messages for context
+
+
+def extract_intent_entities(message, intent_action):
+    """
+    Extract relevant entities from the message based on intent
+    
+    Args:
+        message (str): User's message
+        intent_action (str): Detected intent action
+    
+    Returns:
+        dict: Extracted entities
+    """
+    entities = {}
+    message_lower = message.lower()
+    
+    if intent_action == 'add_calendar_event':
+        # Extract date/time patterns
+        time_patterns = re.findall(r'\b\d{1,2}:\d{2}\b|\b\d{1,2}\s*(am|pm)\b', message_lower)
+        if time_patterns:
+            entities['time'] = time_patterns[0] if isinstance(time_patterns[0], str) else time_patterns[0][0]
+        
+        # Extract event title (simple heuristic)
+        event_words = ['meeting', 'appointment', 'call', 'lunch', 'dinner', 'conference']
+        for word in event_words:
+            if word in message_lower:
+                entities['title'] = word.title()
+                break
+    
+    elif intent_action == 'add_expense':
+        # Extract amount
+        amount_pattern = re.search(r'\$?(\d+(?:\.\d{2})?)', message)
+        if amount_pattern:
+            entities['amount'] = float(amount_pattern.group(1))
+        
+        # Extract category (simple keywords)
+        categories = ['food', 'transport', 'shopping', 'entertainment', 'bills', 'groceries']
+        for category in categories:
+            if category in message_lower:
+                entities['category'] = category.title()
+                break
+    
+    elif intent_action == 'add_task':
+        # Extract subject
+        subjects = ['math', 'english', 'science', 'history', 'homework', 'assignment']
+        for subject in subjects:
+            if subject in message_lower:
+                entities['subject'] = subject.title()
+                break
+        
+        # Extract due date (simple patterns)
+        if 'tomorrow' in message_lower:
+            entities['due_date'] = 'tomorrow'
+        elif 'today' in message_lower:
+            entities['due_date'] = 'today'
+        elif 'next week' in message_lower:
+            entities['due_date'] = 'next week'
+    
+    return entities

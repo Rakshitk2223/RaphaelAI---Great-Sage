@@ -1,7 +1,9 @@
 // API service - handles all backend communication
+// Follows the master blueprint by including Firebase ID token in every request
+
 const BACKEND_URL = process.env.NODE_ENV === 'production' 
   ? 'https://us-central1-raphael-great-sage.cloudfunctions.net/main'
-  : 'http://localhost:5001';
+  : 'http://localhost:5001/raphael-great-sage/us-central1/main';
 
 /**
  * Send a message to the Raphael AI backend
@@ -18,7 +20,7 @@ export const sendMessageToRaphael = async (message, idToken) => {
       },
       body: JSON.stringify({
         message: message,
-        idToken: idToken
+        idToken: idToken  // Required by auth middleware
       }),
     });
 
@@ -39,14 +41,14 @@ export const sendMessageToRaphael = async (message, idToken) => {
  * @param {string} idToken - Firebase ID token for authentication
  * @returns {Promise<Object>} - The user's personal data summary
  */
-export const getUserData = async (idToken) => {
+export const getUserDataSummary = async (idToken) => {
   try {
     const response = await fetch(`${BACKEND_URL}/user-data`, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${idToken}`
-      },
+      }
     });
 
     if (!response.ok) {
@@ -59,9 +61,4 @@ export const getUserData = async (idToken) => {
     console.error('API call error:', error);
     throw error;
   }
-};
-
-export default {
-  sendMessageToRaphael,
-  getUserData
 };

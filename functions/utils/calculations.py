@@ -1,501 +1,299 @@
-# Calculations utility - specific logic for budget calculations and other math operations
+"""
+Calculation utilities for Raphael AI
+Handles mathematical calculations and entity extraction
+"""
+
 import re
+import ast
 import operator
-from datetime import datetime, timedelta
+from datetime import datetime
 
 
 def safe_calculate(expression):
     """
-    Safely perform basic mathematical calculations.
+    Safely evaluate mathematical expressions
     
     Args:
         expression (str): Mathematical expression to evaluate
-        
+    
     Returns:
-        tuple: (success: bool, result: float or error_message: str)
+        tuple: (success: bool, result: str/float)
     """
     try:
-        # Remove any non-mathematical characters for safety
-        clean_expr = re.sub(r'[^0-9+\-*/().\s]', '', expression)
+        # Clean the expression
+        expression = expression.strip()
         
-        # Additional safety checks
-        if len(clean_expr) > 100:
-            return False, "Expression too complex"
+        # Replace common words with operators
+        replacements = {
+            'plus': '+',
+            'add': '+',
+            'minus': '-',
+            'subtract': '-',
+            'times': '*',
+            'multiply': '*',
+            'multiplied by': '*',
+            'divided by': '/',
+            'divide': '/',
+            'percent of': '* 0.01 *',
+            '%': '* 0.01',
+            'of': '*'
+        }
         
-        if not clean_expr.strip():
-            return False, "No valid mathematical expression found"
+        expression_lower = expression.lower()
+        for word, symbol in replacements.items():
+            expression_lower = expression_lower.replace(word, symbol)
         
-        # Check for dangerous patterns
-        dangerous_patterns = ['__', 'import', 'exec', 'eval', 'open', 'file']
-        for pattern in dangerous_patterns:
-            if pattern in expression.lower():
-                return False, "Invalid expression"
+        # Extract numbers and operators
+        # Allow basic mathematical operations only
+        allowed_chars = set('0123456789+-*/.() ')
+        if not all(c in allowed_chars for c in expression_lower.replace(' ', '')):
+            return False, "Invalid characters in expression"
         
-        # Evaluate the expression
-        result = eval(clean_expr)
+        # Use AST to safely evaluate
+        result = safe_eval(expression_lower)
         
-        # Check if result is a number
-        if isinstance(result, (int, float)):
-            return True, float(result)
+        if result is not None:
+            # Format the result nicely
+            if isinstance(result, float):
+                if result.is_integer():
+                    return True, int(result)
+                else:
+                    return True, round(result, 2)
+            return True, result
         else:
-            return False, "Result is not a number"
+            return False, "Could not evaluate expression"
             
-    except ZeroDivisionError:
-        return False, "Division by zero is not allowed"
     except Exception as e:
         return False, f"Calculation error: {str(e)}"
 
 
-def calculate_budget_summary(transactions, monthly_budget=None):
+def safe_eval(expression):
     """
-    Calculate budget summary from a list of transactions.
+    Safely evaluate a mathematical expression using AST
     
     Args:
-        transactions (list): List of transaction dictionaries
-        monthly_budget (float, optional): Monthly budget limit
-        
+        expression (str): Expression to evaluate
+    
     Returns:
-        dict: Budget summary with totals and analysis
+        float/int: Result of calculation or None if invalid
     """
     try:
-        summary = {
-            'total_income': 0.0,
-            'total_expenses': 0.0,
-            'net_amount': 0.0,
-            'monthly_budget': monthly_budget or 0.0,
-            'remaining_budget': 0.0,
-            'categories': {},
-            'transaction_count': len(transactions),
-            'analysis': {}
+        # Parse the expression into an AST
+        node = ast.parse(expression, mode='eval')
+        
+        # Define allowed operations
+        allowed_operators = {
+            ast.Add: operator.add,
+            ast.Sub: operator.sub,
+            ast.Mult: operator.mul,
+            ast.Div: operator.truediv,
+            ast.Pow: operator.pow,
+            ast.USub: operator.neg,
+            ast.UAdd: operator.pos,
         }
         
-        # Process each transaction
-        for transaction in transactions:
-            amount = float(transaction.get('amount', 0))
-            transaction_type = transaction.get('type', 'expense')
-            category = transaction.get('category', 'uncategorized')
-            
-            if transaction_type == 'income':
-                summary['total_income'] += amount
-            else:  # expense
-                summary['total_expenses'] += amount
-                
-                # Categorize expenses
-                if category not in summary['categories']:
-                    summary['categories'][category] = {
-                        'total': 0.0,
-                        'count': 0,
-                        'percentage': 0.0
-                    }
-                
-                summary['categories'][category]['total'] += amount
-                summary['categories'][category]['count'] += 1
+        def _eval(node):
+            if isinstance(node, ast.Num):  # Numbers
+                return node.n
+            elif isinstance(node, ast.Constant):  # Python 3.8+
+                return node.value
+            elif isinstance(node, ast.BinOp):  # Binary operations
+                left = _eval(node.left)
+                right = _eval(node.right)
+                op = allowed_operators.get(type(node.op))
+                if op:
+                    return op(left, right)
+                else:
+                    raise ValueError(f"Unsupported operation: {type(node.op)}")
+            elif isinstance(node, ast.UnaryOp):  # Unary operations
+                operand = _eval(node.operand)
+                op = allowed_operators.get(type(node.op))
+                if op:
+                    return op(operand)
+                else:
+                    raise ValueError(f"Unsupported unary operation: {type(node.op)}")
+            else:
+                raise ValueError(f"Unsupported node type: {type(node)}")
         
-        # Calculate derived values
-        summary['net_amount'] = summary['total_income'] - summary['total_expenses']
-        
-        if monthly_budget:
-            summary['remaining_budget'] = monthly_budget - summary['total_expenses']
-            summary['budget_used_percentage'] = (summary['total_expenses'] / monthly_budget) * 100
-        
-        # Calculate category percentages
-        if summary['total_expenses'] > 0:
-            for category in summary['categories']:
-                cat_total = summary['categories'][category]['total']
-                summary['categories'][category]['percentage'] = (cat_total / summary['total_expenses']) * 100
-        
-        # Generate analysis
-        summary['analysis'] = generate_budget_analysis(summary)
-        
-        return summary
+        return _eval(node.body)
         
     except Exception as e:
-        print(f"Error calculating budget summary: {e}")
+        print(f"Safe eval error: {e}")
         return None
 
 
-def generate_budget_analysis(budget_summary):
+def extract_entities_from_message(message, intent_action):
     """
-    Generate insights and recommendations based on budget data.
+    Extract relevant entities from user message based on intent
     
     Args:
-        budget_summary (dict): Budget summary data
-        
+        message (str): User's message
+        intent_action (str): Detected intent
+    
     Returns:
-        dict: Analysis insights and recommendations
+        dict: Extracted entities
     """
-    analysis = {
-        'status': 'good',
-        'alerts': [],
-        'recommendations': [],
-        'insights': []
-    }
+    entities = {}
+    message_lower = message.lower()
     
     try:
-        monthly_budget = budget_summary.get('monthly_budget', 0)
-        total_expenses = budget_summary.get('total_expenses', 0)
-        remaining_budget = budget_summary.get('remaining_budget', 0)
-        categories = budget_summary.get('categories', {})
+        if intent_action == 'calculate':
+            # Extract mathematical expression
+            # Look for numbers and operators
+            math_pattern = r'[\d\+\-\*\/\.\(\)\s]+'
+            matches = re.findall(math_pattern, message)
+            if matches:
+                # Find the longest match (most likely the full expression)
+                expression = max(matches, key=len).strip()
+                entities['expression'] = expression
         
-        # Budget status analysis
-        if monthly_budget > 0:
-            usage_percentage = (total_expenses / monthly_budget) * 100
+        elif intent_action == 'add_expense':
+            # Extract amount
+            amount_patterns = [
+                r'\$(\d+(?:\.\d{2})?)',  # $123.45
+                r'(\d+(?:\.\d{2})?)\s*dollars?',  # 123.45 dollars
+                r'spent\s+(\d+(?:\.\d{2})?)',  # spent 123.45
+                r'cost\s+(\d+(?:\.\d{2})?)',  # cost 123.45
+            ]
             
-            if usage_percentage > 100:
-                analysis['status'] = 'over_budget'
-                analysis['alerts'].append(f"You've exceeded your monthly budget by ${total_expenses - monthly_budget:.2f}")
-            elif usage_percentage > 80:
-                analysis['status'] = 'warning'
-                analysis['alerts'].append(f"You've used {usage_percentage:.1f}% of your monthly budget")
-            elif usage_percentage > 50:
-                analysis['status'] = 'moderate'
-                analysis['insights'].append(f"You've used {usage_percentage:.1f}% of your monthly budget")
+            for pattern in amount_patterns:
+                match = re.search(pattern, message_lower)
+                if match:
+                    entities['amount'] = float(match.group(1))
+                    break
+            
+            # Extract category
+            categories = {
+                'food': ['food', 'lunch', 'dinner', 'breakfast', 'restaurant', 'groceries'],
+                'transport': ['uber', 'taxi', 'bus', 'train', 'gas', 'fuel'],
+                'shopping': ['shopping', 'clothes', 'amazon', 'store'],
+                'entertainment': ['movie', 'netflix', 'spotify', 'game'],
+                'bills': ['bill', 'electricity', 'internet', 'phone'],
+                'health': ['doctor', 'medicine', 'pharmacy', 'hospital']
+            }
+            
+            for category, keywords in categories.items():
+                if any(keyword in message_lower for keyword in keywords):
+                    entities['category'] = category.title()
+                    break
+        
+        elif intent_action == 'add_task':
+            # Extract subject
+            subjects = {
+                'math': ['math', 'mathematics', 'algebra', 'geometry', 'calculus'],
+                'english': ['english', 'literature', 'writing', 'essay'],
+                'science': ['science', 'physics', 'chemistry', 'biology'],
+                'history': ['history', 'social studies'],
+                'computer': ['computer', 'programming', 'coding', 'cs']
+            }
+            
+            for subject, keywords in subjects.items():
+                if any(keyword in message_lower for keyword in keywords):
+                    entities['subject'] = subject.title()
+                    break
+            
+            # Extract due date
+            if 'tomorrow' in message_lower:
+                entities['due_date'] = 'tomorrow'
+            elif 'today' in message_lower:
+                entities['due_date'] = 'today'
+            elif 'next week' in message_lower:
+                entities['due_date'] = 'next week'
+            elif 'monday' in message_lower:
+                entities['due_date'] = 'monday'
+            elif 'friday' in message_lower:
+                entities['due_date'] = 'friday'
+        
+        elif intent_action == 'add_calendar_event':
+            # Extract time
+            time_patterns = [
+                r'\b(\d{1,2}:\d{2})\b',  # 14:30
+                r'\b(\d{1,2})\s*(am|pm)\b',  # 3 PM
+                r'\b(\d{1,2}:\d{2})\s*(am|pm)\b',  # 3:30 PM
+            ]
+            
+            for pattern in time_patterns:
+                match = re.search(pattern, message_lower)
+                if match:
+                    entities['time'] = match.group(1) if len(match.groups()) == 1 else f"{match.group(1)} {match.group(2)}"
+                    break
+            
+            # Extract date
+            if 'tomorrow' in message_lower:
+                entities['date'] = 'tomorrow'
+            elif 'today' in message_lower:
+                entities['date'] = 'today'
+            elif 'next week' in message_lower:
+                entities['date'] = 'next week'
+            
+            # Extract event type/title
+            event_types = ['meeting', 'appointment', 'call', 'lunch', 'dinner', 'conference']
+            for event_type in event_types:
+                if event_type in message_lower:
+                    entities['title'] = event_type.title()
+                    break
+    
+    except Exception as e:
+        print(f"Error extracting entities: {e}")
+    
+    return entities
+
+
+def format_number(number):
+    """
+    Format a number for display
+    
+    Args:
+        number (float/int): Number to format
+    
+    Returns:
+        str: Formatted number
+    """
+    try:
+        if isinstance(number, float):
+            if number.is_integer():
+                return str(int(number))
             else:
-                analysis['status'] = 'good'
-                analysis['insights'].append(f"You're doing well! Only {usage_percentage:.1f}% of budget used")
+                return f"{number:.2f}"
+        return str(number)
+    except:
+        return str(number)
+
+
+def extract_percentage_calculation(message):
+    """
+    Extract percentage calculations from message
+    
+    Args:
+        message (str): User message
+    
+    Returns:
+        dict: Percentage calculation details
+    """
+    try:
+        # Patterns for percentage calculations
+        patterns = [
+            r'(\d+(?:\.\d+)?)\s*%\s*of\s*(\d+(?:\.\d+)?)',  # 15% of 200
+            r'what\s+is\s+(\d+(?:\.\d+)?)\s*%\s*of\s*(\d+(?:\.\d+)?)',  # what is 15% of 200
+            r'(\d+(?:\.\d+)?)\s*percent\s*of\s*(\d+(?:\.\d+)?)',  # 15 percent of 200
+        ]
         
-        # Category analysis
-        if categories:
-            # Find top spending categories
-            sorted_categories = sorted(categories.items(), key=lambda x: x[1]['total'], reverse=True)
-            
-            if sorted_categories:
-                top_category, top_data = sorted_categories[0]
-                analysis['insights'].append(f"Your top spending category is {top_category} (${top_data['total']:.2f})")
+        for pattern in patterns:
+            match = re.search(pattern, message.lower())
+            if match:
+                percentage = float(match.group(1))
+                base_number = float(match.group(2))
+                result = (percentage / 100) * base_number
                 
-                # Check for high percentage in single category
-                if top_data['percentage'] > 50:
-                    analysis['recommendations'].append(f"Consider reducing {top_category} expenses (currently {top_data['percentage']:.1f}% of total)")
+                return {
+                    'percentage': percentage,
+                    'base': base_number,
+                    'result': result,
+                    'expression': f"{percentage}% of {base_number} = {result}"
+                }
         
-        # Spending pattern insights
-        if total_expenses > 0:
-            daily_average = total_expenses / 30  # Assume monthly data
-            analysis['insights'].append(f"Average daily spending: ${daily_average:.2f}")
-            
-            if monthly_budget > 0:
-                recommended_daily = monthly_budget / 30
-                if daily_average > recommended_daily:
-                    analysis['recommendations'].append(f"Try to limit daily spending to ${recommended_daily:.2f} to stay within budget")
-        
-        # Recommendations based on remaining budget
-        if remaining_budget > 0:
-            days_remaining = (datetime.now().replace(day=1) + timedelta(days=32)).replace(day=1) - datetime.now()
-            daily_allowance = remaining_budget / max(days_remaining.days, 1)
-            analysis['recommendations'].append(f"Daily allowance for rest of month: ${daily_allowance:.2f}")
-        
-        return analysis
+        return {}
         
     except Exception as e:
-        print(f"Error generating budget analysis: {e}")
-        return analysis
-
-
-def calculate_compound_interest(principal, rate, time, frequency=12):
-    """
-    Calculate compound interest.
-    
-    Args:
-        principal (float): Initial amount
-        rate (float): Annual interest rate (as percentage)
-        time (float): Time in years
-        frequency (int): Compounding frequency per year
-        
-    Returns:
-        dict: Calculation results
-    """
-    try:
-        # Convert percentage to decimal
-        r = rate / 100
-        
-        # Compound interest formula: A = P(1 + r/n)^(nt)
-        amount = principal * (1 + r/frequency) ** (frequency * time)
-        interest_earned = amount - principal
-        
-        return {
-            'principal': principal,
-            'rate': rate,
-            'time': time,
-            'frequency': frequency,
-            'final_amount': round(amount, 2),
-            'interest_earned': round(interest_earned, 2),
-            'description': f"${principal:.2f} at {rate}% for {time} years = ${amount:.2f}"
-        }
-        
-    except Exception as e:
-        return {'error': str(e)}
-
-
-def calculate_tip(bill_amount, tip_percentage):
-    """
-    Calculate tip amount and total bill.
-    
-    Args:
-        bill_amount (float): Original bill amount
-        tip_percentage (float): Tip percentage
-        
-    Returns:
-        dict: Tip calculation results
-    """
-    try:
-        tip_amount = bill_amount * (tip_percentage / 100)
-        total_amount = bill_amount + tip_amount
-        
-        return {
-            'bill_amount': bill_amount,
-            'tip_percentage': tip_percentage,
-            'tip_amount': round(tip_amount, 2),
-            'total_amount': round(total_amount, 2),
-            'description': f"Bill: ${bill_amount:.2f}, Tip ({tip_percentage}%): ${tip_amount:.2f}, Total: ${total_amount:.2f}"
-        }
-        
-    except Exception as e:
-        return {'error': str(e)}
-
-
-def calculate_split_bill(total_amount, number_of_people, tip_percentage=0):
-    """
-    Calculate how to split a bill among multiple people.
-    
-    Args:
-        total_amount (float): Total bill amount
-        number_of_people (int): Number of people splitting the bill
-        tip_percentage (float): Tip percentage to add
-        
-    Returns:
-        dict: Split bill calculation
-    """
-    try:
-        if number_of_people <= 0:
-            return {'error': 'Number of people must be greater than 0'}
-        
-        # Add tip if specified
-        if tip_percentage > 0:
-            tip_amount = total_amount * (tip_percentage / 100)
-            total_with_tip = total_amount + tip_amount
-        else:
-            tip_amount = 0
-            total_with_tip = total_amount
-        
-        per_person = total_with_tip / number_of_people
-        
-        return {
-            'original_bill': total_amount,
-            'tip_percentage': tip_percentage,
-            'tip_amount': round(tip_amount, 2),
-            'total_with_tip': round(total_with_tip, 2),
-            'number_of_people': number_of_people,
-            'per_person': round(per_person, 2),
-            'description': f"${total_with_tip:.2f} split {number_of_people} ways = ${per_person:.2f} per person"
-        }
-        
-    except Exception as e:
-        return {'error': str(e)}
-
-
-def calculate_unit_conversion(value, from_unit, to_unit):
-    """
-    Perform basic unit conversions.
-    
-    Args:
-        value (float): Value to convert
-        from_unit (str): Source unit
-        to_unit (str): Target unit
-        
-    Returns:
-        dict: Conversion result
-    """
-    # Define conversion factors (to meters for length, to grams for weight, etc.)
-    conversions = {
-        # Length (to meters)
-        'inch': 0.0254,
-        'feet': 0.3048,
-        'yard': 0.9144,
-        'mile': 1609.34,
-        'cm': 0.01,
-        'meter': 1.0,
-        'km': 1000.0,
-        
-        # Weight (to grams)
-        'oz': 28.3495,
-        'pound': 453.592,
-        'gram': 1.0,
-        'kg': 1000.0,
-        
-        # Temperature (special handling)
-        'fahrenheit': 'special',
-        'celsius': 'special',
-        'kelvin': 'special'
-    }
-    
-    try:
-        from_unit = from_unit.lower()
-        to_unit = to_unit.lower()
-        
-        # Special handling for temperature
-        if 'fahrenheit' in [from_unit, to_unit] or 'celsius' in [from_unit, to_unit]:
-            return convert_temperature(value, from_unit, to_unit)
-        
-        # Check if units are in the same category
-        from_factor = conversions.get(from_unit)
-        to_factor = conversions.get(to_unit)
-        
-        if from_factor is None or to_factor is None:
-            return {'error': f'Unsupported unit conversion: {from_unit} to {to_unit}'}
-        
-        # Convert to base unit, then to target unit
-        base_value = value * from_factor
-        result = base_value / to_factor
-        
-        return {
-            'original_value': value,
-            'from_unit': from_unit,
-            'to_unit': to_unit,
-            'result': round(result, 4),
-            'description': f"{value} {from_unit} = {result:.4f} {to_unit}"
-        }
-        
-    except Exception as e:
-        return {'error': str(e)}
-
-
-def convert_temperature(value, from_unit, to_unit):
-    """
-    Convert between temperature units.
-    
-    Args:
-        value (float): Temperature value
-        from_unit (str): Source unit (fahrenheit, celsius, kelvin)
-        to_unit (str): Target unit
-        
-    Returns:
-        dict: Temperature conversion result
-    """
-    try:
-        # Convert to Celsius first
-        if from_unit == 'fahrenheit':
-            celsius = (value - 32) * 5/9
-        elif from_unit == 'kelvin':
-            celsius = value - 273.15
-        else:  # celsius
-            celsius = value
-        
-        # Convert from Celsius to target
-        if to_unit == 'fahrenheit':
-            result = celsius * 9/5 + 32
-        elif to_unit == 'kelvin':
-            result = celsius + 273.15
-        else:  # celsius
-            result = celsius
-        
-        return {
-            'original_value': value,
-            'from_unit': from_unit,
-            'to_unit': to_unit,
-            'result': round(result, 2),
-            'description': f"{value}° {from_unit.title()} = {result:.2f}° {to_unit.title()}"
-        }
-        
-    except Exception as e:
-        return {'error': str(e)}
-
-
-def calculate_grade_average(grades, weights=None):
-    """
-    Calculate weighted or simple average of grades.
-    
-    Args:
-        grades (list): List of grade values
-        weights (list, optional): List of weights for each grade
-        
-    Returns:
-        dict: Grade calculation results
-    """
-    try:
-        if not grades:
-            return {'error': 'No grades provided'}
-        
-        # Convert to floats
-        grade_values = [float(g) for g in grades]
-        
-        if weights:
-            if len(weights) != len(grades):
-                return {'error': 'Number of weights must match number of grades'}
-            
-            weight_values = [float(w) for w in weights]
-            
-            # Weighted average
-            weighted_sum = sum(g * w for g, w in zip(grade_values, weight_values))
-            total_weight = sum(weight_values)
-            
-            if total_weight == 0:
-                return {'error': 'Total weight cannot be zero'}
-            
-            average = weighted_sum / total_weight
-            calculation_type = 'weighted'
-        else:
-            # Simple average
-            average = sum(grade_values) / len(grade_values)
-            calculation_type = 'simple'
-        
-        # Determine letter grade (assuming standard scale)
-        if average >= 90:
-            letter_grade = 'A'
-        elif average >= 80:
-            letter_grade = 'B'
-        elif average >= 70:
-            letter_grade = 'C'
-        elif average >= 60:
-            letter_grade = 'D'
-        else:
-            letter_grade = 'F'
-        
-        return {
-            'grades': grade_values,
-            'weights': weights,
-            'calculation_type': calculation_type,
-            'average': round(average, 2),
-            'letter_grade': letter_grade,
-            'description': f"{calculation_type.title()} average: {average:.2f} ({letter_grade})"
-        }
-        
-    except Exception as e:
-        return {'error': str(e)}
-
-
-def parse_math_expression(text):
-    """
-    Parse natural language math expressions.
-    
-    Args:
-        text (str): Natural language math expression
-        
-    Returns:
-        str: Parsed mathematical expression or original text
-    """
-    # Replace word operations with symbols
-    replacements = {
-        r'\bplus\b': '+',
-        r'\bminus\b': '-',
-        r'\btimes\b': '*',
-        r'\bmultiplied by\b': '*',
-        r'\bdivided by\b': '/',
-        r'\bover\b': '/',
-        r'\bpercent of\b': '* 0.01 *',
-        r'\bsquared\b': '**2',
-        r'\bcubed\b': '**3',
-        r'\bto the power of\b': '**'
-    }
-    
-    result = text.lower()
-    for pattern, replacement in replacements.items():
-        result = re.sub(pattern, replacement, result)
-    
-    # Remove common words that don't affect calculation
-    words_to_remove = ['what', 'is', 'the', 'result', 'of', 'equals', 'equal']
-    for word in words_to_remove:
-        result = re.sub(rf'\b{word}\b', '', result)
-    
-    # Clean up extra spaces
-    result = re.sub(r'\s+', ' ', result).strip()
-    
-    return result
+        print(f"Error extracting percentage: {e}")
+        return {}

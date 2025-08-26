@@ -2,12 +2,16 @@ import os
 from datetime import datetime
 from flask import Flask, request, jsonify, g
 from flask_cors import CORS
-from dotenv import load_dotenv
 
-# Import our refactored services
+# Load environment variables for local development only
+if os.path.exists('.env'):
+    from dotenv import load_dotenv
+    load_dotenv()
+
+# Import our services according to the master blueprint
 from utils.auth_middleware import firebase_auth_required, initialize_firebase_admin
 from services.firestore_service import (
-    save_memory, get_memories, save_homework, get_pending_homework,
+    save_memory, get_memories, save_task, get_pending_tasks,
     save_budget_transaction, get_budget_summary, save_user_data, get_user_data
 )
 from services.gemini_service import (
@@ -16,11 +20,7 @@ from services.gemini_service import (
 from services.calendar_service import (
     get_calendar_service, create_google_calendar_event, get_todays_events
 )
-from utils.calculations import safe_calculate, calculate_budget_summary
-from utils.nlu_parser import extract_entities_from_message
-
-# Load environment variables for local development
-load_dotenv()
+from utils.calculations import safe_calculate, extract_entities_from_message
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
@@ -28,13 +28,21 @@ CORS(app)  # Enable CORS for all routes
 # Initialize Firebase Admin SDK
 initialize_firebase_admin()
 
-print("Raphael AI backend initialized successfully!")
-
+print("🚀 Raphael AI backend initialized successfully!")
 
 @app.route('/chat', methods=['POST'])
 @firebase_auth_required
 def chat():
-    """Main chat endpoint - orchestrates the AI conversation flow."""
+    """
+    Main chat endpoint - orchestrates the AI conversation flow.
+    
+    This endpoint follows the master blueprint:
+    1. Authenticates user via Firebase ID token
+    2. Gets user context (memories, budget, tasks)
+    3. Calls Gemini AI with full context
+    4. Parses intent and executes appropriate actions
+    5. Stores conversation history
+    """
     try:
         data = request.get_json()
         message = data.get('message', '').strip()
@@ -48,13 +56,13 @@ def chat():
         recent_messages = get_user_data(user_id, 'conversations', limit=6)
         memories = get_memories(user_id, limit=5)
         budget_info = get_budget_summary(user_id)
-        homework = get_pending_homework(user_id)
+        pending_tasks = get_pending_tasks(user_id, limit=5)
         
         # Format context for Gemini
         user_personal_context = {
             'memories': [m.get('text', '') for m in (memories or [])],
             'budget': format_budget_context(budget_info),
-            'homework': [f"{h.get('subject', '')}: {h.get('description', '')}" for h in (homework or [])],
+            'tasks': [f"{t.get('subject', '')}: {t.get('description', '')}" for t in (pending_tasks or [])],
         }
         
         conversation_history = format_conversation_history(recent_messages or [])
@@ -81,7 +89,8 @@ def chat():
             'user_message': message,
             'ai_response': final_response,
             'intent': intent_data.get('action', 'general'),
-            'timestamp': datetime.now().isoformat()
+            'timestamp': datetime.now().isoformat(),
+            'sender': 'user'  # For compatibility with frontend
         }
         save_user_data(user_id, 'conversations', None, conversation_data)
         
@@ -95,7 +104,6 @@ def chat():
         print(f"Error in chat endpoint: {e}")
         return jsonify({'error': 'Internal server error'}), 500
 
-
 @app.route('/user-data', methods=['GET'])
 @firebase_auth_required
 def get_user_data_summary():
@@ -104,14 +112,14 @@ def get_user_data_summary():
         user_id = g.user_id
         
         memories = get_memories(user_id, limit=10)
-        homework = get_pending_homework(user_id)
+        tasks = get_pending_tasks(user_id)
         budget = get_budget_summary(user_id)
         
         return jsonify({
             'user_id': user_id,
             'memories_count': len(memories or []),
             'recent_memories': [m.get('text', '') for m in (memories or [])[:5]],
-            'homework_count': len(homework or []),
+            'tasks_count': len(tasks or []),
             'budget': format_budget_context(budget)
         })
         
@@ -119,15 +127,18 @@ def get_user_data_summary():
         print(f"Error getting user data: {e}")
         return jsonify({'error': 'Internal server error'}), 500
 
-
 @app.route('/health', methods=['GET'])
 def health_check():
     """Health check endpoint."""
     return jsonify({'status': 'healthy', 'timestamp': datetime.now().isoformat()})
 
-
 def execute_action(user_id, intent_data, entities, message):
-    """Execute specific actions based on intent."""
+    """
+    Execute specific actions based on intent.
+    
+    This function implements the core logic for different user intents
+    as described in the master blueprint.
+    """
     action_result = ""
     action = intent_data.get('action')
     
@@ -137,10 +148,10 @@ def execute_action(user_id, intent_data, entities, message):
             action_result = "\n✅ I've stored this information in my memory."
     
     elif action == 'retrieve_memory':
-        query = entities.get('query', message)
         memories = get_memories(user_id, limit=10)
         if memories:
-            relevant_memories = [m for m in memories if query.lower() in m.get('text', '').lower()]
+            query = message.lower()
+            relevant_memories = [m for m in memories if any(word in m.get('text', '').lower() for word in query.split())]
             if relevant_memories:
                 memory_texts = [m.get('text', '') for m in relevant_memories[:3]]
                 action_result = f"\n📝 Here's what I remember: {'; '.join(memory_texts)}"
@@ -151,13 +162,13 @@ def execute_action(user_id, intent_data, entities, message):
             if service:
                 event_result = create_google_calendar_event(
                     service, 
-                    entities.get('custom_title', 'Event'),
+                    entities.get('title', 'Event'),
                     entities.get('date', 'today'),
                     entities.get('time', '15:00')
                 )
-                action_result = event_result
+                action_result = f"\n{event_result}"
             else:
-                action_result = "\n📅 Calendar service not available. Please check your credentials."
+                action_result = "\n📅 Calendar service not available in test mode."
         except Exception as e:
             action_result = f"\n📅 Error creating calendar event: {str(e)}"
     
@@ -180,33 +191,33 @@ def execute_action(user_id, intent_data, entities, message):
         else:
             action_result = f"\n🔢 {result}"
     
-    elif action == 'add_homework':
+    elif action == 'add_task':
         try:
             subject = entities.get('subject', 'General')
-            description = entities.get('description', message)
+            description = message  # Use full message as description
             due_date = entities.get('due_date', 'No due date')
             
-            success, _ = save_homework(user_id, subject, description, due_date)
+            success, _ = save_task(user_id, subject, description, due_date)
             if success:
-                action_result = f"\n📚 Added homework for {subject}: {description}"
+                action_result = f"\n📚 Added task for {subject}: {description}"
             else:
-                action_result = "\n📚 Error adding homework. Please try again."
+                action_result = "\n📚 Error adding task. Please try again."
         except Exception as e:
-            action_result = f"\n📚 Error adding homework: {str(e)}"
+            action_result = f"\n📚 Error adding task: {str(e)}"
     
-    elif action == 'get_homework':
-        homework_list = get_pending_homework(user_id)
-        if homework_list:
-            hw_items = [f"• {hw.get('subject', 'No subject')}: {hw.get('description', 'No description')}" for hw in homework_list[:5]]
-            action_result = f"\n📚 Pending homework:\n{chr(10).join(hw_items)}"
+    elif action == 'get_tasks':
+        tasks = get_pending_tasks(user_id)
+        if tasks:
+            task_items = [f"• {task.get('subject', 'No subject')}: {task.get('description', 'No description')}" for task in tasks[:5]]
+            action_result = f"\n📚 Pending tasks:\n{chr(10).join(task_items)}"
         else:
-            action_result = "\n📚 No pending homework found."
+            action_result = "\n📚 No pending tasks found."
     
     elif action == 'add_expense':
         try:
             amount = entities.get('amount', 0)
             category = entities.get('category', 'Other')
-            description = entities.get('description', message)
+            description = message
             
             success, _ = save_budget_transaction(user_id, amount, category, description, 'expense')
             if success:
@@ -225,7 +236,6 @@ def execute_action(user_id, intent_data, entities, message):
     
     return action_result
 
-
 def format_budget_context(budget_info):
     """Format budget information for context."""
     if not budget_info:
@@ -237,6 +247,11 @@ def format_budget_context(budget_info):
     
     return f"Income: ${total_income}, Expenses: ${total_expenses}, Balance: ${balance}"
 
+# Cloud Functions entry point
+def main(request):
+    """Entry point for Google Cloud Functions"""
+    with app.app_context():
+        return app.full_dispatch_request()
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))

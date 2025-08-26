@@ -1,399 +1,247 @@
-# Google Calendar service - handles all Google Calendar API operations
+"""
+Google Calendar service for Raphael AI
+Handles calendar integration and event management
+"""
+
 import os
 from datetime import datetime, timedelta
 from googleapiclient.discovery import build
 from google.oauth2 import service_account
 
-# Calendar API setup
-SCOPES = ['https://www.googleapis.com/auth/calendar']
 
-
-def get_calendar_service(user_id):
+def get_calendar_service(user_id=None):
     """
-    Get an authorized Google Calendar service instance for the given user_id.
-    
-    Note: This is a simplified implementation using service account credentials.
-    In production, you would need to implement proper OAuth flow for each user
-    and store their refresh tokens securely in Firestore.
+    Get Google Calendar service object
     
     Args:
-        user_id (str): Firebase user ID
-        
+        user_id (str): User identifier (for user-specific calendar access)
+    
     Returns:
-        googleapiclient.discovery.Resource: Calendar service instance or None
+        service object or None if not available
     """
     try:
-        # Check if we're in test mode
+        # In test mode, return None
         if os.getenv('SKIP_GOOGLE_AUTH', 'False').lower() == 'true':
-            print(f"Mock: Getting calendar service for user {user_id}")
+            print("🔧 Calendar service not available in test mode")
             return None
         
-        # For development/testing, use service account credentials
+        # Load service account credentials
         service_account_path = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS')
-        if service_account_path and os.path.exists(service_account_path):
-            credentials = service_account.Credentials.from_service_account_file(
-                service_account_path, scopes=SCOPES)
-            service = build('calendar', 'v3', credentials=credentials)
-            return service
+        if not service_account_path or not os.path.exists(service_account_path):
+            print("⚠️  Service account file not found")
+            return None
         
-        print(f"No calendar credentials found for user {user_id}")
-        return None
+        # Set up credentials with Calendar scope
+        SCOPES = ['https://www.googleapis.com/auth/calendar']
+        credentials = service_account.Credentials.from_service_account_file(
+            service_account_path, scopes=SCOPES
+        )
+        
+        # Build the service
+        service = build('calendar', 'v3', credentials=credentials)
+        return service
         
     except Exception as e:
         print(f"Error setting up calendar service: {e}")
         return None
 
 
-def create_google_calendar_event(service, summary, start_datetime, end_datetime=None, description=None):
+def create_google_calendar_event(service, title, date_str='today', time_str='15:00'):
     """
-    Create an event in Google Calendar.
+    Create a new Google Calendar event
     
     Args:
-        service: Google Calendar service instance
-        summary (str): Event title/summary
-        start_datetime (datetime): Event start time
-        end_datetime (datetime, optional): Event end time (defaults to 1 hour after start)
-        description (str, optional): Event description
-        
+        service: Google Calendar service object
+        title (str): Event title
+        date_str (str): Date string (e.g., 'today', 'tomorrow', '2024-01-15')
+        time_str (str): Time string (e.g., '15:00', '3:00 PM')
+    
     Returns:
-        tuple: (success: bool, result: dict or error_message: str)
+        str: Success or error message
     """
+    if not service:
+        return "📅 Calendar service not available"
+    
     try:
-        if service is None:
-            # Mock implementation for testing
-            print(f"Mock: Creating calendar event '{summary}' at {start_datetime}")
-            return True, {
-                'id': 'mock_event_id',
-                'summary': summary,
-                'start': start_datetime.isoformat(),
-                'htmlLink': 'https://calendar.google.com/mock_link'
-            }
+        # Parse date
+        event_date = parse_date_string(date_str)
+        if not event_date:
+            return "📅 Could not parse date. Please use format like 'today', 'tomorrow', or 'YYYY-MM-DD'"
         
-        if not end_datetime:
-            end_datetime = start_datetime + timedelta(hours=1)
+        # Parse time
+        event_time = parse_time_string(time_str)
+        if not event_time:
+            event_time = "15:00"  # Default to 3 PM
         
-        # Get user's timezone preference (default to UTC)
-        timezone = 'UTC'  # This could be retrieved from user preferences
+        # Create event datetime
+        event_datetime = f"{event_date}T{event_time}:00"
+        end_datetime = f"{event_date}T{add_hour_to_time(event_time)}:00"
         
+        # Create event object
         event = {
-            'summary': summary,
-            'description': description or '',
+            'summary': title,
             'start': {
-                'dateTime': start_datetime.isoformat(),
-                'timeZone': timezone,
+                'dateTime': event_datetime,
+                'timeZone': 'UTC',
             },
             'end': {
-                'dateTime': end_datetime.isoformat(),
-                'timeZone': timezone,
+                'dateTime': end_datetime,
+                'timeZone': 'UTC',
             },
-            'reminders': {
-                'useDefault': False,
-                'overrides': [
-                    {'method': 'email', 'minutes': 24 * 60},  # 1 day before
-                    {'method': 'popup', 'minutes': 30},       # 30 minutes before
-                ],
-            },
+            'description': f'Event created by Raphael AI',
         }
         
-        event_result = service.events().insert(calendarId='primary', body=event).execute()
+        # Insert event
+        created_event = service.events().insert(calendarId='primary', body=event).execute()
         
-        return True, {
-            'id': event_result.get('id'),
-            'summary': event_result.get('summary'),
-            'start': event_result['start'].get('dateTime', event_result['start'].get('date')),
-            'htmlLink': event_result.get('htmlLink')
-        }
+        return f"📅 Event '{title}' created for {date_str} at {time_str}"
         
     except Exception as e:
         print(f"Error creating calendar event: {e}")
-        return False, str(e)
+        return f"📅 Error creating event: {str(e)}"
 
 
-def get_google_calendar_events(service, start_datetime, end_datetime):
+def get_todays_events(user_id=None):
     """
-    Retrieve events from Google Calendar within a date range.
+    Get today's calendar events
     
     Args:
-        service: Google Calendar service instance
-        start_datetime (datetime): Start of date range
-        end_datetime (datetime): End of date range
-        
+        user_id (str): User identifier
+    
     Returns:
-        list: List of event dictionaries or empty list if error
+        list: List of today's events
     """
+    service = get_calendar_service(user_id)
+    if not service:
+        return []
+    
     try:
-        if service is None:
-            # Mock implementation for testing
-            print(f"Mock: Getting calendar events from {start_datetime} to {end_datetime}")
-            return [
-                {
-                    'id': 'mock_event_1',
-                    'summary': 'Team meeting',
-                    'start': start_datetime.replace(hour=9, minute=0).isoformat(),
-                    'end': start_datetime.replace(hour=10, minute=0).isoformat()
-                },
-                {
-                    'id': 'mock_event_2',
-                    'summary': 'Lunch with client',
-                    'start': start_datetime.replace(hour=12, minute=0).isoformat(),
-                    'end': start_datetime.replace(hour=13, minute=0).isoformat()
-                }
-            ]
+        # Get today's date range
+        today = datetime.utcnow().date()
+        start_time = datetime.combine(today, datetime.min.time()).isoformat() + 'Z'
+        end_time = datetime.combine(today, datetime.max.time()).isoformat() + 'Z'
         
-        # Convert datetime objects to RFC3339 format for API
-        time_min = start_datetime.isoformat() + 'Z'
-        time_max = end_datetime.isoformat() + 'Z'
-        
+        # Call the Calendar API
         events_result = service.events().list(
             calendarId='primary',
-            timeMin=time_min,
-            timeMax=time_max,
+            timeMin=start_time,
+            timeMax=end_time,
             singleEvents=True,
             orderBy='startTime'
         ).execute()
         
         events = events_result.get('items', [])
-        
-        # Format events for easier consumption
-        formatted_events = []
-        for event in events:
-            formatted_events.append({
-                'id': event.get('id'),
-                'summary': event.get('summary', 'No title'),
-                'start': event['start'].get('dateTime', event['start'].get('date')),
-                'end': event['end'].get('dateTime', event['end'].get('date')),
-                'description': event.get('description', ''),
-                'location': event.get('location', ''),
-                'htmlLink': event.get('htmlLink', '')
-            })
-        
-        return formatted_events
+        return events
         
     except Exception as e:
-        print(f"Error getting calendar events: {e}")
+        print(f"Error getting today's events: {e}")
         return []
 
 
-def get_todays_events(service):
+def parse_date_string(date_str):
     """
-    Get today's calendar events.
+    Parse date string into YYYY-MM-DD format
     
     Args:
-        service: Google Calendar service instance
-        
+        date_str (str): Date string
+    
     Returns:
-        list: List of today's events
-    """
-    today = datetime.now().date()
-    start_time = datetime.combine(today, datetime.min.time())
-    end_time = datetime.combine(today, datetime.max.time())
-    
-    return get_google_calendar_events(service, start_time, end_time)
-
-
-def get_upcoming_events(service, days_ahead=7):
-    """
-    Get upcoming events for the next specified number of days.
-    
-    Args:
-        service: Google Calendar service instance
-        days_ahead (int): Number of days to look ahead
-        
-    Returns:
-        list: List of upcoming events
-    """
-    start_time = datetime.now()
-    end_time = start_time + timedelta(days=days_ahead)
-    
-    return get_google_calendar_events(service, start_time, end_time)
-
-
-def update_google_calendar_event(service, event_id, updates):
-    """
-    Update an existing calendar event.
-    
-    Args:
-        service: Google Calendar service instance
-        event_id (str): ID of the event to update
-        updates (dict): Dictionary of fields to update
-        
-    Returns:
-        tuple: (success: bool, result: dict or error_message: str)
+        str: Formatted date or None
     """
     try:
-        if service is None:
-            print(f"Mock: Updating calendar event {event_id} with {updates}")
-            return True, {"id": event_id, "updated": True}
+        date_str_lower = date_str.lower().strip()
+        today = datetime.now().date()
         
-        # Get the existing event
-        event = service.events().get(calendarId='primary', eventId=event_id).execute()
+        if date_str_lower in ['today', 'now']:
+            return today.isoformat()
+        elif date_str_lower == 'tomorrow':
+            return (today + timedelta(days=1)).isoformat()
+        elif date_str_lower == 'yesterday':
+            return (today - timedelta(days=1)).isoformat()
+        elif 'next week' in date_str_lower:
+            return (today + timedelta(days=7)).isoformat()
+        else:
+            # Try to parse as ISO date
+            try:
+                parsed_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+                return parsed_date.isoformat()
+            except ValueError:
+                # Try other common formats
+                for fmt in ['%m/%d/%Y', '%d/%m/%Y', '%m-%d-%Y']:
+                    try:
+                        parsed_date = datetime.strptime(date_str, fmt).date()
+                        return parsed_date.isoformat()
+                    except ValueError:
+                        continue
         
-        # Update the fields
-        for key, value in updates.items():
-            if key in ['summary', 'description', 'location']:
-                event[key] = value
-            elif key == 'start_datetime':
-                event['start']['dateTime'] = value.isoformat()
-            elif key == 'end_datetime':
-                event['end']['dateTime'] = value.isoformat()
-        
-        # Update the event
-        updated_event = service.events().update(
-            calendarId='primary', 
-            eventId=event_id, 
-            body=event
-        ).execute()
-        
-        return True, {
-            'id': updated_event.get('id'),
-            'summary': updated_event.get('summary'),
-            'start': updated_event['start'].get('dateTime', updated_event['start'].get('date')),
-            'htmlLink': updated_event.get('htmlLink')
-        }
+        return None
         
     except Exception as e:
-        print(f"Error updating calendar event: {e}")
-        return False, str(e)
+        print(f"Error parsing date: {e}")
+        return None
 
 
-def delete_google_calendar_event(service, event_id):
+def parse_time_string(time_str):
     """
-    Delete a calendar event.
+    Parse time string into HH:MM format
     
     Args:
-        service: Google Calendar service instance
-        event_id (str): ID of the event to delete
-        
+        time_str (str): Time string
+    
     Returns:
-        tuple: (success: bool, message: str)
+        str: Formatted time or None
     """
     try:
-        if service is None:
-            print(f"Mock: Deleting calendar event {event_id}")
-            return True, "Event deleted successfully (mock)"
+        time_str = time_str.strip().lower()
         
-        service.events().delete(calendarId='primary', eventId=event_id).execute()
-        return True, "Event deleted successfully"
-        
-    except Exception as e:
-        print(f"Error deleting calendar event: {e}")
-        return False, str(e)
-
-
-def search_calendar_events(service, query, max_results=10):
-    """
-    Search for calendar events by text query.
-    
-    Args:
-        service: Google Calendar service instance
-        query (str): Search query
-        max_results (int): Maximum number of results
-        
-    Returns:
-        list: List of matching events
-    """
-    try:
-        if service is None:
-            print(f"Mock: Searching calendar events for '{query}'")
-            return [{"summary": f"Mock event matching '{query}'", "start": datetime.now().isoformat()}]
-        
-        # Search in the next 30 days
-        start_time = datetime.now()
-        end_time = start_time + timedelta(days=30)
-        
-        events_result = service.events().list(
-            calendarId='primary',
-            timeMin=start_time.isoformat() + 'Z',
-            timeMax=end_time.isoformat() + 'Z',
-            singleEvents=True,
-            orderBy='startTime',
-            q=query,  # Search query
-            maxResults=max_results
-        ).execute()
-        
-        events = events_result.get('items', [])
-        
-        # Format events
-        formatted_events = []
-        for event in events:
-            formatted_events.append({
-                'id': event.get('id'),
-                'summary': event.get('summary', 'No title'),
-                'start': event['start'].get('dateTime', event['start'].get('date')),
-                'end': event['end'].get('dateTime', event['end'].get('date')),
-                'description': event.get('description', ''),
-                'htmlLink': event.get('htmlLink', '')
-            })
-        
-        return formatted_events
-        
-    except Exception as e:
-        print(f"Error searching calendar events: {e}")
-        return []
-
-
-# Helper functions for date/time parsing
-
-def parse_relative_date(date_string):
-    """
-    Parse relative date strings like 'tomorrow', 'next week', etc.
-    
-    Args:
-        date_string (str): Relative date string
-        
-    Returns:
-        datetime: Parsed datetime object
-    """
-    now = datetime.now()
-    date_string = date_string.lower().strip()
-    
-    if date_string in ['today']:
-        return now.replace(hour=12, minute=0, second=0, microsecond=0)
-    elif date_string in ['tomorrow']:
-        return now.replace(hour=12, minute=0, second=0, microsecond=0) + timedelta(days=1)
-    elif date_string in ['next week']:
-        return now.replace(hour=12, minute=0, second=0, microsecond=0) + timedelta(days=7)
-    elif date_string in ['next month']:
-        return now.replace(hour=12, minute=0, second=0, microsecond=0) + timedelta(days=30)
-    else:
-        # Default to today if not recognized
-        return now.replace(hour=12, minute=0, second=0, microsecond=0)
-
-
-def parse_time_string(time_string):
-    """
-    Parse time strings like '3pm', '15:30', etc.
-    
-    Args:
-        time_string (str): Time string
-        
-    Returns:
-        tuple: (hour, minute) or None if parsing fails
-    """
-    import re
-    
-    time_string = time_string.lower().strip()
-    
-    # Try to match patterns like "3pm", "3:30pm", "15:30"
-    patterns = [
-        r'(\d{1,2}):(\d{2})\s*(am|pm)?',
-        r'(\d{1,2})\s*(am|pm)',
-        r'(\d{1,2}):(\d{2})',
-    ]
-    
-    for pattern in patterns:
-        match = re.match(pattern, time_string)
-        if match:
-            hour = int(match.group(1))
-            minute = int(match.group(2)) if len(match.groups()) > 1 and match.group(2) else 0
+        # Handle common formats
+        if 'am' in time_str or 'pm' in time_str:
+            # Parse 12-hour format
+            time_part = time_str.replace('am', '').replace('pm', '').strip()
             
-            # Handle am/pm
-            if len(match.groups()) > 2 and match.group(3):
-                if match.group(3) == 'pm' and hour != 12:
-                    hour += 12
-                elif match.group(3) == 'am' and hour == 12:
-                    hour = 0
+            # Add minutes if not present
+            if ':' not in time_part:
+                time_part += ':00'
             
-            return (hour, minute)
+            hour, minute = map(int, time_part.split(':'))
+            
+            if 'pm' in time_str and hour != 12:
+                hour += 12
+            elif 'am' in time_str and hour == 12:
+                hour = 0
+            
+            return f"{hour:02d}:{minute:02d}"
+        
+        else:
+            # Assume 24-hour format
+            if ':' in time_str:
+                parts = time_str.split(':')
+                hour = int(parts[0])
+                minute = int(parts[1]) if len(parts) > 1 else 0
+                return f"{hour:02d}:{minute:02d}"
+            else:
+                # Just hour
+                hour = int(time_str)
+                return f"{hour:02d}:00"
+        
+    except Exception as e:
+        print(f"Error parsing time: {e}")
+        return None
+
+
+def add_hour_to_time(time_str):
+    """
+    Add one hour to a time string
     
-    return None
+    Args:
+        time_str (str): Time in HH:MM format
+    
+    Returns:
+        str: Time one hour later
+    """
+    try:
+        hour, minute = map(int, time_str.split(':'))
+        hour = (hour + 1) % 24
+        return f"{hour:02d}:{minute:02d}"
+    except:
+        return "16:00"  # Default to 4 PM
